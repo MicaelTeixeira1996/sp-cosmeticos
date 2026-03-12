@@ -639,7 +639,10 @@ function App() {
               const divida = totalValor - totalPago;
               return (
                 <div style={{ animation: "fadeIn .2s ease" }}>
-                  <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                    <button style={{ background: "#fef2f2", border: "1.5px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} onClick={() => { deleteClient(selectedClientName); setView("list"); }}>🗑 Apagar Cliente</button>
+                  </div>
                   <div style={{ ...S.card, background: "linear-gradient(135deg,#2c2416,#3d3022)", color: "#f5f0e8", marginBottom: 12 }}>
                     <div style={{ fontSize: 10, letterSpacing: 2, color: "#c9a96e", fontWeight: 600, marginBottom: 4, textTransform: "uppercase" }}>Perfil de Cliente</div>
                     <h2 style={{ margin: "0 0 4px", fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 700 }}>{selectedClientName}</h2>
