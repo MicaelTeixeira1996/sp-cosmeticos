@@ -7,10 +7,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f5f0e8; }
-  </style>
+  <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { background: #f5f0e8; }</style>
 </head>
 <body>
   <div id="root"></div>
@@ -114,6 +111,8 @@ function App() {
   const [editingContact, setEditingContact] = useState(false);
   const [contactForm, setContactForm] = useState({ contacto: "", morada: "", localidade: "", comercial: "" });
   const [showExportClients, setShowExportClients] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showExportOrders, setShowExportOrders] = useState(false);
   const [exportOrderDates, setExportOrderDates] = useState({ from: todayStr(), to: todayStr() });
 
@@ -201,6 +200,16 @@ function App() {
 
 
   // CLIENT CONTACTS
+  function getNextClientNum() {
+    const nums = (data.clientsExtra || []).map(c => c.num || 0);
+    return (nums.length > 0 ? Math.max(...nums) : 0) + 1;
+  }
+  function getClientNum(clientName) {
+    const key = clientName.toLowerCase().trim();
+    const extra = (data.clientsExtra || []).find(c => c.name.toLowerCase().trim() === key);
+    return extra?.num ? String(extra.num).padStart(4, "0") : null;
+  }
+
   function createNewClient() {
     if (!clientNewForm.nome.trim()) return showToast("Coloca o nome da cliente!", "err");
     const key = clientNewForm.nome.toLowerCase().trim();
@@ -214,10 +223,10 @@ function App() {
     // Add a placeholder entry so client appears in list even with no orders
     const clientsExtra = [...(data.clientsExtra || [])];
     if (!clientsExtra.find(c => c.name.toLowerCase().trim() === key)) {
-      clientsExtra.push({ id: generateId(), name: clientNewForm.nome.trim() });
+      clientsExtra.push({ id: generateId(), name: clientNewForm.nome.trim(), num: getNextClientNum() });
     }
     save({ ...data, clientContacts, clientsExtra });
-    setClientNewForm({ nome: "", contacto: "", morada: "", localidade: "" });
+    setClientNewForm({ nome: "", contacto: "", morada: "", localidade: "", comercial: "" });
     setView("list");
     showToast("Cliente adicionada!");
   }
@@ -517,7 +526,40 @@ function App() {
               <div style={S.card}>
                 <div style={S.cardHead}><h2 style={S.cardTitle}>Nova Encomenda</h2><button style={S.cancelBtn} onClick={() => setView("list")}>✕</button></div>
                 <Field label="Data"><input style={S.input} type="date" value={clientForm.date} onChange={e => setClientForm(f => ({ ...f, date: e.target.value }))} /></Field>
-                <Field label="Cliente"><input style={S.input} type="text" placeholder="Nome do cliente..." value={clientForm.client} onChange={e => setClientForm(f => ({ ...f, client: e.target.value }))} onKeyDown={e => e.key === "Enter" && createClientOrder()} /></Field>
+                <Field label="Cliente">
+                  <div style={{ position: "relative" }}>
+                    <input style={{ ...S.input, cursor: "pointer" }} type="text"
+                      placeholder="🔍 Pesquisar cliente..."
+                      value={clientSearch}
+                      onChange={e => { setClientSearch(e.target.value); setShowClientDropdown(true); setClientForm(f => ({ ...f, client: "" })); }}
+                      onFocus={() => setShowClientDropdown(true)}
+                      autoComplete="off"
+                    />
+                    {clientForm.client && (
+                      <div style={{ marginTop: 6, background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "#166534", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span>✓ {clientForm.client}{getClientNum(clientForm.client) ? " · Nº " + getClientNum(clientForm.client) : ""}</span>
+                        <button style={{ background: "none", border: "none", color: "#166534", cursor: "pointer", fontSize: 14 }} onClick={() => { setClientForm(f => ({ ...f, client: "" })); setClientSearch(""); }}>✕</button>
+                      </div>
+                    )}
+                    {showClientDropdown && !clientForm.client && (
+                      <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #c9b99a", borderRadius: 10, zIndex: 100, maxHeight: 220, overflowY: "auto", boxShadow: "0 4px 20px rgba(0,0,0,0.1)", marginTop: 4 }}>
+                        {clientProfiles.filter(cp => !clientSearch || cp.name.toLowerCase().includes(clientSearch.toLowerCase()) || (getClientNum(cp.name) || "").includes(clientSearch)).length === 0 && (
+                          <div style={{ padding: "12px 14px", color: "#a08c6e", fontSize: 13 }}>Nenhuma cliente encontrada</div>
+                        )}
+                        {clientProfiles.filter(cp => !clientSearch || cp.name.toLowerCase().includes(clientSearch.toLowerCase()) || (getClientNum(cp.name) || "").includes(clientSearch)).map((cp, i) => (
+                          <div key={i} style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #f0ebe3", display: "flex", alignItems: "center", gap: 10 }}
+                            onMouseDown={() => { setClientForm(f => ({ ...f, client: cp.name })); setClientSearch(""); setShowClientDropdown(false); }}>
+                            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#c9a96e,#7a6a52)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{cp.name.charAt(0).toUpperCase()}</div>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 600, color: "#2c2416" }}>{cp.name}</div>
+                              {getClientNum(cp.name) && <div style={{ fontSize: 11, color: "#a08c6e" }}>Nº {getClientNum(cp.name)}{cp.contact?.localidade ? " · " + cp.contact.localidade : ""}</div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Field>
                 <Field label="Nota (opcional)"><input style={S.input} type="text" placeholder="Observações..." value={clientForm.note} onChange={e => setClientForm(f => ({ ...f, note: e.target.value }))} /></Field>
                 <button style={S.submitBtn} onClick={createClientOrder}>Criar Encomenda →</button>
               </div>
@@ -600,7 +642,8 @@ function App() {
                   <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
                   <div style={{ ...S.card, background: "linear-gradient(135deg,#2c2416,#3d3022)", color: "#f5f0e8", marginBottom: 12 }}>
                     <div style={{ fontSize: 10, letterSpacing: 2, color: "#c9a96e", fontWeight: 600, marginBottom: 4, textTransform: "uppercase" }}>Perfil de Cliente</div>
-                    <h2 style={{ margin: "0 0 16px", fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 700 }}>{selectedClientName}</h2>
+                    <h2 style={{ margin: "0 0 4px", fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 700 }}>{selectedClientName}</h2>
+                    {getClientNum(selectedClientName) && <div style={{ fontSize: 12, color: "#c9a96e", fontWeight: 600, letterSpacing: 1, marginBottom: 16 }}>Nº {getClientNum(selectedClientName)}</div>}
                     <div style={{ display: "flex", gap: 20 }}><StatBox value={clientOrders.length} label="Encomendas" /><StatBox value={profile.pendingCount || 0} label="Pendentes" color="#fbbf24" /></div>
                   </div>
                   {/* Contact info */}
@@ -744,7 +787,7 @@ function App() {
                         <div key={i} style={S.clientCard} className="hoverable" onClick={() => { setSelectedClientName(cp.name); setView("clientProfile"); }}>
                           <div style={S.clientInitialWrap}><div style={S.clientInitial}>{cp.name.charAt(0).toUpperCase()}</div></div>
                           <div style={{ flex: 1 }}>
-                            <div style={S.clientCardName}>{cp.name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={S.clientCardName}>{cp.name}</div>{getClientNum(cp.name) && <div style={{ fontSize: 10, fontWeight: 700, color: "#a08c6e", background: "#f5f0e8", padding: "2px 7px", borderRadius: 20, border: "1px solid #e0d8cc" }}>Nº {getClientNum(cp.name)}</div>}</div>
                             <div style={S.clientCardMeta}>{cp.orders.length} encomenda{cp.orders.length !== 1 ? "s" : ""} · última: {formatDate(lastOrder?.date)}{cp.contact?.localidade ? " · " + cp.contact.localidade : ""}</div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>{allProductNames.slice(0, 3).map((pn, j) => <span key={j} style={S.prodChip}>{pn}</span>)}{allProductNames.length > 3 && <span style={{ ...S.prodChip, background: "#e8e0d0" }}>+{allProductNames.length - 3}</span>}</div>
                           </div>
@@ -1074,7 +1117,6 @@ const S = {
   localBtnActive: { background: "#2c2416", color: "#f5f0e8", border: "1.5px solid #2c2416" },
   pdfBtn: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
 };
-
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
