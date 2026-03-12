@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SP Cosméticos</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f5f0e8; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const SUPABASE_URL = "https://jbgqklojefwjlziemuvx.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ3FrbG9qZWZ3amx6aWVtdXZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMjYwNjksImV4cCI6MjA4ODkwMjA2OX0.w33ICycyXRhNunS-DJ1aGtgHELipXMD8ZocpCxoVjyE";
+
+async function sbFetch(path, options = {}) {
+  const session = JSON.parse(localStorage.getItem("sb_session") || "null");
+  const headers = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session?.access_token || SUPABASE_KEY}`, ...options.headers };
+  const res = await fetch(SUPABASE_URL + path, { ...options, headers });
+  return res;
+}
+async function sbAuth(email, password) {
+  const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=password", { method: "POST", headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY }, body: JSON.stringify({ email, password }) });
+  const data = await res.json();
+  if (data.access_token) { localStorage.setItem("sb_session", JSON.stringify(data)); return { ok: true, user: data.user }; }
+  return { ok: false, error: data.error_description || data.msg || "Erro ao entrar" };
+}
+async function sbSignOut() { await fetch(SUPABASE_URL + "/auth/v1/logout", { method: "POST", headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${JSON.parse(localStorage.getItem("sb_session") || "{}").access_token}` } }); localStorage.removeItem("sb_session"); }
+async function sbLoadData() {
+  const res = await sbFetch("/rest/v1/app_data?id=eq.main&select=data");
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return rows.length > 0 ? rows[0].data : null;
+}
+async function sbSaveData(d) {
+  await sbFetch("/rest/v1/app_data", { method: "POST", headers: { "Prefer": "resolution=merge-duplicates" }, body: JSON.stringify({ id: "main", data: d, updated_at: new Date().toISOString() }) });
+}
+function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+function formatDate(d) { if (!d) return ""; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function fmtMoney(v) { return v != null && v !== "" ? `${Number(v).toFixed(2)} €` : "—"; }
+const INIT = { orders: [], supplierOrders: [], despesas: [], clientContacts: {}, clientsExtra: [] };
+const CATEGORIAS = ["Fornecedor","Renda","Água/Luz/Gás","Comunicações","Seguros","Salários","Impostos","Marketing","Equipamento","Outro"];
+
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function handleLogin() {
+    if (!email || !password) return setError("Preenche email e password!");
+    setLoading(true); setError("");
+    const res = await sbAuth(email, password);
+    setLoading(false);
+    if (res.ok) onLogin(res.user);
+    else setError(res.error);
+  }
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#2c2416,#3d3022)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 20, padding: "36px 28px", width: "100%", maxWidth: 360, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ fontSize: 11, letterSpacing: 3, color: "#a08c6e", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>SP</div>
+          <h1 style={{ margin: 0, fontFamily: "'Playfair Display',serif", fontSize: 28, color: "#2c2416" }}>Cosméticos</h1>
+          <div style={{ fontSize: 13, color: "#a08c6e", marginTop: 6 }}>Acesso restrito</div>
+        </div>
+        {error && <div style={{ background: "#fef2f2", color: "#b91c1c", borderRadius: 10, padding: "10px 14px", fontSize: 13, marginBottom: 14, fontWeight: 600 }}>{error}</div>}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#7a6a52", marginBottom: 5, textTransform: "uppercase", letterSpacing: 1 }}>Email</div>
+          <input style={{ width: "100%", border: "1.5px solid #e0d8cc", borderRadius: 10, padding: "11px 14px", fontSize: 15, outline: "none", boxSizing: "border-box" }} type="email" placeholder="o-teu@email.com" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#7a6a52", marginBottom: 5, textTransform: "uppercase", letterSpacing: 1 }}>Password</div>
+          <input style={{ width: "100%", border: "1.5px solid #e0d8cc", borderRadius: 10, padding: "11px 14px", fontSize: 15, outline: "none", boxSizing: "border-box" }} type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} />
+        </div>
+        <button style={{ width: "100%", background: loading ? "#a08c6e" : "#2c2416", color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer" }} onClick={handleLogin} disabled={loading}>
+          {loading ? "A entrar..." : "Entrar →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(() => JSON.parse(localStorage.getItem("sb_session") || "null"));
+  const [data, setData] = useState(INIT);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("clients");
+  const [view, setView] = useState("list");
+  const [clientsMode, setClientsMode] = useState("orders");
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedClientName, setSelectedClientName] = useState(null);
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
+  const [clientForm, setClientForm] = useState({ date: todayStr(), client: "", note: "" });
+  const [supplierForm, setSupplierForm] = useState({ date: todayStr(), supplier: "", note: "" });
+  const [newProduct, setNewProduct] = useState("");
+  const [newSProduct, setNewSProduct] = useState("");
+  const [filterClient, setFilterClient] = useState("");
+  const [toast, setToast] = useState(null);
+  const [editingValor, setEditingValor] = useState(false);
+  const [valorInput, setValorInput] = useState("");
+  const [despesaForm, setDespesaForm] = useState({ descricao: "", valor: "", dataPagamento: todayStr(), categoria: "Outro", pago: false });
+  const [despesaFilter, setDespesaFilter] = useState("todas");
+  const [showBackup, setShowBackup] = useState(false);
+  const [clientNewForm, setClientNewForm] = useState({ nome: "", contacto: "", morada: "", localidade: "", comercial: "" });
+  const [filterLocalidade, setFilterLocalidade] = useState("");
+  const [filterComercial, setFilterComercial] = useState("");
+  const [editingContact, setEditingContact] = useState(false);
+  const [contactForm, setContactForm] = useState({ contacto: "", morada: "", localidade: "", comercial: "" });
+  const [showExportClients, setShowExportClients] = useState(false);
+  const [showExportOrders, setShowExportOrders] = useState(false);
+  const [exportOrderDates, setExportOrderDates] = useState({ from: todayStr(), to: todayStr() });
+
+  useEffect(() => {
+    if (!session) { setLoading(false); return; }
+    (async () => {
+      try { const d = await sbLoadData(); if (d) setData({ ...INIT, ...d }); } catch {}
+      setLoading(false);
+    })();
+  }, [session]);
+
+  async function save(d) { setData(d); try { await sbSaveData(d); } catch {} }
+  function showToast(msg, type = "ok") { setToast({ msg, type }); setTimeout(() => setToast(null), 2400); }
+
+  // CLIENT ORDERS
+  function createClientOrder() {
+    if (!clientForm.client.trim()) return showToast("Coloca o nome do cliente!", "err");
+    const order = { id: generateId(), date: clientForm.date, client: clientForm.client.trim(), note: clientForm.note.trim(), products: [], valor: null, pago: false };
+    const d = { ...data, orders: [order, ...data.orders] };
+    save(d); setClientForm({ date: todayStr(), client: "", note: "" }); setSelectedOrder(order); setView("detail"); showToast("Encomenda criada!");
+  }
+  function deleteClientOrder(id) { if (!confirm("Eliminar esta encomenda?")) return; save({ ...data, orders: data.orders.filter(o => o.id !== id) }); setView("list"); setSelectedOrder(null); showToast("Eliminada."); }
+  function addClientProduct(orderId) {
+    const name = newProduct.trim(); if (!name) return;
+    const orders = data.orders.map(o => o.id === orderId ? { ...o, products: [...o.products, { id: generateId(), name, status: "pendente" }] } : o);
+    const d = { ...data, orders }; save(d); setSelectedOrder(d.orders.find(o => o.id === orderId)); setNewProduct("");
+  }
+  function toggleClientProduct(orderId, productId) {
+    const orders = data.orders.map(o => o.id !== orderId ? o : { ...o, products: o.products.map(p => p.id === productId ? { ...p, status: p.status === "pendente" ? "tenho" : "pendente" } : p) });
+    const d = { ...data, orders }; save(d); setSelectedOrder(d.orders.find(o => o.id === orderId));
+  }
+  function deleteClientProduct(orderId, productId) {
+    const orders = data.orders.map(o => o.id === orderId ? { ...o, products: o.products.filter(p => p.id !== productId) } : o);
+    const d = { ...data, orders }; save(d); setSelectedOrder(d.orders.find(o => o.id === orderId));
+  }
+  function setOrderValor(orderId, valor) {
+    const v = valor === "" ? null : parseFloat(valor);
+    const orders = data.orders.map(o => o.id === orderId ? { ...o, valor: isNaN(v) ? null : v } : o);
+    const d = { ...data, orders }; save(d); setSelectedOrder(d.orders.find(o => o.id === orderId)); setEditingValor(false);
+  }
+  function togglePago(orderId) {
+    const orders = data.orders.map(o => o.id === orderId ? { ...o, pago: !o.pago } : o);
+    const d = { ...data, orders }; save(d); setSelectedOrder(d.orders.find(o => o.id === orderId));
+  }
+
+  // SUPPLIER ORDERS
+  function createSupplierOrder() {
+    if (!supplierForm.supplier.trim()) return showToast("Coloca o nome do fornecedor!", "err");
+    const so = { id: generateId(), date: supplierForm.date, supplier: supplierForm.supplier.trim(), note: supplierForm.note.trim(), products: [] };
+    const d = { ...data, supplierOrders: [so, ...(data.supplierOrders || [])] };
+    save(d); setSupplierForm({ date: todayStr(), supplier: "", note: "" }); setSelectedSupplier(so); setView("sdetail"); showToast("Fornecedor criado!");
+  }
+  function deleteSupplierOrder(id) { if (!confirm("Eliminar?")) return; save({ ...data, supplierOrders: (data.supplierOrders || []).filter(s => s.id !== id) }); setView("list"); setSelectedSupplier(null); }
+  function addSupplierProduct(sid) {
+    const name = newSProduct.trim(); if (!name) return;
+    const supplierOrders = (data.supplierOrders || []).map(s => s.id === sid ? { ...s, products: [...s.products, { id: generateId(), name, status: "encomendado" }] } : s);
+    const d = { ...data, supplierOrders }; save(d); setSelectedSupplier(d.supplierOrders.find(s => s.id === sid)); setNewSProduct("");
+  }
+  function toggleSupplierProduct(sid, pid) {
+    const supplierOrders = (data.supplierOrders || []).map(s => s.id !== sid ? s : { ...s, products: s.products.map(p => p.id === pid ? { ...p, status: p.status === "encomendado" ? "recebido" : "encomendado" } : p) });
+    const d = { ...data, supplierOrders }; save(d); setSelectedSupplier(d.supplierOrders.find(s => s.id === sid));
+  }
+  function deleteSupplierProduct(sid, pid) {
+    const supplierOrders = (data.supplierOrders || []).map(s => s.id === sid ? { ...s, products: s.products.filter(p => p.id !== pid) } : s);
+    const d = { ...data, supplierOrders }; save(d); setSelectedSupplier(d.supplierOrders.find(s => s.id === sid));
+  }
+  function addFaltasToSupplier(items) {
+    const sos = data.supplierOrders || []; if (!sos.length) return showToast("Cria primeiro uma encomenda ao fornecedor!", "err");
+    const supplierOrders = sos.map((s, i) => i === 0 ? { ...s, products: [...s.products, ...items.map(name => ({ id: generateId(), name, status: "encomendado" }))] } : s);
+    save({ ...data, supplierOrders }); showToast(`${items.length} produto(s) enviado(s)!`); setTab("supplier"); setView("list");
+  }
+
+  // DESPESAS
+  function addDespesa() {
+    if (!despesaForm.descricao.trim()) return showToast("Coloca uma descrição!", "err");
+    if (!despesaForm.valor || isNaN(parseFloat(despesaForm.valor))) return showToast("Coloca um valor válido!", "err");
+    const nova = { id: generateId(), descricao: despesaForm.descricao.trim(), valor: parseFloat(despesaForm.valor), dataPagamento: despesaForm.dataPagamento, categoria: despesaForm.categoria, pago: despesaForm.pago };
+    save({ ...data, despesas: [nova, ...(data.despesas || [])] });
+    setDespesaForm({ descricao: "", valor: "", dataPagamento: todayStr(), categoria: "Outro", pago: false });
+    showToast("Despesa adicionada!");
+  }
+  function deleteDespesa(id) { if (!confirm("Eliminar esta despesa?")) return; save({ ...data, despesas: (data.despesas || []).filter(d => d.id !== id) }); showToast("Eliminada."); }
+  function toggleDespesaPago(id) { save({ ...data, despesas: (data.despesas || []).map(d => d.id === id ? { ...d, pago: !d.pago } : d) }); }
+
+
+
+  // CLIENT CONTACTS
+  function createNewClient() {
+    if (!clientNewForm.nome.trim()) return showToast("Coloca o nome da cliente!", "err");
+    const key = clientNewForm.nome.toLowerCase().trim();
+    // Check if already exists
+    const exists = clientProfiles.some(cp => cp.name.toLowerCase().trim() === key);
+    if (exists) return showToast("Já existe uma cliente com esse nome!", "err");
+    const clientContacts = {
+      ...(data.clientContacts || {}),
+      [key]: { contacto: clientNewForm.contacto.trim(), morada: clientNewForm.morada.trim(), localidade: clientNewForm.localidade.trim(), comercial: clientNewForm.comercial.trim() }
+    };
+    // Add a placeholder entry so client appears in list even with no orders
+    const clientsExtra = [...(data.clientsExtra || [])];
+    if (!clientsExtra.find(c => c.name.toLowerCase().trim() === key)) {
+      clientsExtra.push({ id: generateId(), name: clientNewForm.nome.trim() });
+    }
+    save({ ...data, clientContacts, clientsExtra });
+    setClientNewForm({ nome: "", contacto: "", morada: "", localidade: "" });
+    setView("list");
+    showToast("Cliente adicionada!");
+  }
+
+  function deleteClient(clientName) {
+    if (!confirm(`Eliminar a cliente "${clientName}"? Isto remove o contacto mas mantém as encomendas.`)) return;
+    const key = clientName.toLowerCase().trim();
+    const clientContacts = { ...(data.clientContacts || {}) };
+    delete clientContacts[key];
+    const clientsExtra = (data.clientsExtra || []).filter(c => c.name.toLowerCase().trim() !== key);
+    save({ ...data, clientContacts, clientsExtra });
+    showToast("Cliente eliminada.");
+  }
+
+  function saveClientContact(clientName, fields) {
+    const key = clientName.toLowerCase().trim();
+    const clientContacts = { ...(data.clientContacts || {}), [key]: { ...((data.clientContacts || {})[key] || {}), ...fields } };
+    save({ ...data, clientContacts });
+    setEditingContact(false);
+    showToast("Contacto guardado!");
+  }
+  function getContact(clientName) {
+    return (data.clientContacts || {})[clientName.toLowerCase().trim()] || {};
+  }
+
+
+  // PDF EXPORTS
+  function printPDF(htmlContent, title) {
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title><style>
+      body { font-family: 'Segoe UI', sans-serif; color: #2c2416; margin: 0; padding: 24px; font-size: 13px; }
+      h1 { font-size: 22px; margin: 0 0 4px; color: #2c2416; }
+      .sub { font-size: 11px; color: #a08c6e; margin-bottom: 20px; }
+      .section-title { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #a08c6e; font-weight: 700; margin: 18px 0 6px; border-bottom: 1px solid #e8e0d0; padding-bottom: 4px; }
+      .client-row { display: flex; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #f0ebe3; gap: 12px; page-break-inside: avoid; }
+      .client-initial { width: 36px; height: 36px; border-radius: 50%; background: #c9a96e; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; flex-shrink: 0; }
+      .client-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+      .client-meta { font-size: 11px; color: #7a6a52; }
+      .order-row { padding: 10px 12px; margin-bottom: 6px; border: 1px solid #e8e0d0; border-radius: 8px; page-break-inside: avoid; }
+      .order-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+      .order-client { font-size: 15px; font-weight: 700; }
+      .order-date { font-size: 11px; color: #a08c6e; font-weight: 600; }
+      .order-valor { font-size: 14px; font-weight: 700; }
+      .pago { color: #166534; } .nopago { color: #b91c1c; }
+      .products { font-size: 11px; color: #7a6a52; margin-top: 4px; }
+      .note { font-size: 11px; color: #a08c6e; font-style: italic; }
+      .stats-bar { background: #f5f0e8; padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; display: flex; gap: 24px; }
+      .stat { text-align: center; }
+      .stat-val { font-size: 18px; font-weight: 700; }
+      .stat-label { font-size: 10px; color: #a08c6e; text-transform: uppercase; letter-spacing: 1px; }
+      @media print { body { padding: 12px; } }
+    </style></head><body>${htmlContent}</body></html>`);
+    win.document.close();
+    setTimeout(() => { win.print(); }, 400);
+  }
+
+  function exportClientsPDF(order) {
+    let clients = [...clientProfiles];
+    if (order === "alfabetica") {
+      clients = clients.sort((a, b) => a.name.localeCompare(b.name));
+    } else {
+      // by zone - group by localidade
+      clients = clients.sort((a, b) => {
+        const la = a.contact?.localidade || "zzz";
+        const lb = b.contact?.localidade || "zzz";
+        return la.localeCompare(lb) || a.name.localeCompare(b.name);
+      });
+    }
+
+    let html = `<h1>SP Cosméticos · Clientes</h1><div class="sub">Exportado em ${formatDate(todayStr())} · ${clients.length} clientes · Ordem: ${order === "alfabetica" ? "Alfabética" : "Por Zona"}</div>`;
+    html += `<div class="stats-bar"><div class="stat"><div class="stat-val">${clients.length}</div><div class="stat-label">Clientes</div></div><div class="stat"><div class="stat-val">${clients.filter(c=>c.orders.length>0).length}</div><div class="stat-label">Com encomendas</div></div><div class="stat"><div class="stat-val">${allLocalidades.length}</div><div class="stat-label">Localidades</div></div></div>`;
+
+    if (order === "zona") {
+      const groups = {};
+      clients.forEach(c => {
+        const loc = c.contact?.localidade || "Sem Localidade";
+        if (!groups[loc]) groups[loc] = [];
+        groups[loc].push(c);
+      });
+      Object.entries(groups).forEach(([loc, list]) => {
+        html += `<div class="section-title">${loc} (${list.length})</div>`;
+        list.forEach(c => {
+          const divida = c.totalValor - c.totalPago;
+          html += `<div class="client-row"><div class="client-initial">${c.name.charAt(0).toUpperCase()}</div><div style="flex:1"><div class="client-name">${c.name}</div><div class="client-meta">${c.contact?.contacto ? '📞 ' + c.contact.contacto + ' · ' : ''}${c.contact?.morada ? c.contact.morada + ' · ' : ''}${c.orders.length} encomenda${c.orders.length!==1?'s':''}</div>${divida > 0 ? '<div class="client-meta" style="color:#b91c1c">Deve ' + fmtMoney(divida) + '</div>' : ''}</div></div>`;
+        });
+      });
+    } else {
+      clients.forEach(c => {
+        const divida = c.totalValor - c.totalPago;
+        html += `<div class="client-row"><div class="client-initial">${c.name.charAt(0).toUpperCase()}</div><div style="flex:1"><div class="client-name">${c.name}</div><div class="client-meta">${c.contact?.contacto ? '📞 ' + c.contact.contacto + ' · ' : ''}${c.contact?.localidade ? '🏘️ ' + c.contact.localidade + ' · ' : ''}${c.contact?.morada ? c.contact.morada + ' · ' : ''}${c.orders.length} encomenda${c.orders.length!==1?'s':''}</div>${divida > 0 ? '<div class="client-meta" style="color:#b91c1c">Deve ' + fmtMoney(divida) + '</div>' : ''}</div></div>`;
+      });
+    }
+    printPDF(html, "Lista de Clientes");
+    setShowExportClients(false);
+  }
+
+  function exportOrdersPDF(from, to) {
+    if (!from || !to) return showToast("Seleciona as datas!", "err");
+    const orders = data.orders
+      .filter(o => o.date >= from && o.date <= to)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (orders.length === 0) return showToast("Sem encomendas nesse período!", "err");
+    const totalValor = orders.reduce((s, o) => s + (o.valor ?? 0), 0);
+    const totalPago = orders.filter(o => o.pago).reduce((s, o) => s + (o.valor ?? 0), 0);
+    const totalDivida = totalValor - totalPago;
+
+    let html = `<h1>SP Cosméticos · Encomendas</h1><div class="sub">De ${formatDate(from)} a ${formatDate(to)} · ${orders.length} encomendas</div>`;
+    html += `<div class="stats-bar">
+      <div class="stat"><div class="stat-val">${orders.length}</div><div class="stat-label">Encomendas</div></div>
+      <div class="stat"><div class="stat-val" style="color:#166534">${fmtMoney(totalPago)}</div><div class="stat-label">Recebido</div></div>
+      <div class="stat"><div class="stat-val" style="color:#b91c1c">${fmtMoney(totalDivida)}</div><div class="stat-label">Por receber</div></div>
+      <div class="stat"><div class="stat-val">${fmtMoney(totalValor)}</div><div class="stat-label">Total</div></div>
+    </div>`;
+    orders.forEach(o => {
+      const prods = o.products.map(p => p.name).join(", ") || "—";
+      html += `<div class="order-row">
+        <div class="order-head">
+          <div><div class="order-client">${o.client}</div><div class="order-date">${formatDate(o.date)}</div>${o.note ? '<div class="note">' + o.note + '</div>' : ''}</div>
+          <div style="text-align:right"><div class="order-valor">${o.valor != null ? fmtMoney(o.valor) : '—'}</div><div class="${o.pago ? 'pago' : 'nopago'}" style="font-size:11px;font-weight:700">${o.pago ? '✓ Pago' : 'Por pagar'}</div></div>
+        </div>
+        <div class="products">Produtos: ${prods}</div>
+      </div>`;
+    });
+    printPDF(html, `Encomendas ${formatDate(from)} a ${formatDate(to)}`);
+    setShowExportOrders(false);
+  }
+
+  // BACKUP
+  function exportData() {
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sp-cosmeticos-backup-${todayStr()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Backup exportado!");
+  }
+
+  function importData(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!parsed.orders) throw new Error("Ficheiro inválido");
+        if (!confirm("Isto vai substituir todos os dados atuais. Tens a certeza?")) return;
+        save({ orders: parsed.orders || [], supplierOrders: parsed.supplierOrders || [], despesas: parsed.despesas || [], clientContacts: parsed.clientContacts || {}, clientsExtra: parsed.clientsExtra || [] });
+        showToast("Dados importados com sucesso!");
+        setShowBackup(false);
+      } catch {
+        showToast("Erro ao ler o ficheiro!", "err");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  // FALTAS & PROFILES
+  function getFaltas() {
+    const map = {};
+    data.orders.forEach(order => { order.products.filter(p => p.status === "pendente").forEach(p => { const key = p.name.toLowerCase().trim(); if (!map[key]) map[key] = { name: p.name, clients: [], count: 0 }; map[key].clients.push(order.client); map[key].count++; }); });
+    return Object.values(map).sort((a, b) => b.count - a.count);
+  }
+  function getClientProfiles() {
+    const map = {};
+    data.orders.forEach(order => {
+      const key = order.client.toLowerCase().trim();
+      if (!map[key]) map[key] = { name: order.client, orders: [], totalProducts: 0, pendingCount: 0, totalValor: 0, totalPago: 0 };
+      map[key].orders.push(order); map[key].totalProducts += order.products.length;
+      map[key].pendingCount += order.products.filter(p => p.status === "pendente").length;
+      if (order.valor != null) map[key].totalValor += order.valor;
+      if (order.pago && order.valor != null) map[key].totalPago += order.valor;
+    });
+    // Merge clients added manually (no orders yet)
+    (data.clientsExtra || []).forEach(c => {
+      const key = c.name.toLowerCase().trim();
+      if (!map[key]) map[key] = { name: c.name, orders: [], totalProducts: 0, pendingCount: 0, totalValor: 0, totalPago: 0 };
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name)).map(cp => ({ ...cp, contact: (data.clientContacts || {})[cp.name.toLowerCase().trim()] || {} }));
+  }
+  function getClientProductHistory(clientName) {
+    const clientOrders = data.orders.filter(o => o.client.toLowerCase().trim() === clientName.toLowerCase().trim()).sort((a, b) => b.date.localeCompare(a.date));
+    const map = {};
+    clientOrders.forEach(order => { order.products.forEach(p => { const key = p.name.toLowerCase().trim(); if (!map[key]) map[key] = { name: p.name, entries: [] }; map[key].entries.push({ date: order.date, orderId: order.id, status: p.status }); }); });
+    return Object.values(map).sort((a, b) => { const aL = a.entries.map(e => e.date).sort().reverse()[0]; const bL = b.entries.map(e => e.date).sort().reverse()[0]; return bL > aL ? 1 : -1; });
+  }
+  function stats(products) { const total = products.length; const done = products.filter(p => p.status === "tenho" || p.status === "recebido").length; return { total, done, pct: total ? Math.round((done / total) * 100) : 0 }; }
+
+  const totalPending = data.orders.reduce((acc, o) => acc + o.products.filter(p => p.status === "pendente").length, 0);
+  const faltas = getFaltas();
+  const supplierOrders = data.supplierOrders || [];
+  const despesas = data.despesas || [];
+  const despesasPagas = despesas.filter(d => d.pago).reduce((s, d) => s + d.valor, 0);
+  const despesasPendentes = despesas.filter(d => !d.pago).reduce((s, d) => s + d.valor, 0);
+  const clientProfiles = getClientProfiles();
+  const allLocalidades = [...new Set(clientProfiles.map(cp => cp.contact?.localidade).filter(Boolean))].sort();
+  const allComerciais = [...new Set(clientProfiles.map(cp => cp.contact?.comercial).filter(Boolean))].sort();
+  const clientsInDebt = clientProfiles.filter(cp => (cp.totalValor - cp.totalPago) > 0.001);
+  const totalDebt = clientsInDebt.reduce((s, cp) => s + (cp.totalValor - cp.totalPago), 0);
+  const filteredOrders = data.orders.filter(o => !filterClient || o.client.toLowerCase().includes(filterClient.toLowerCase()));
+
+  if (!session) return <LoginScreen onLogin={user => { setSession(JSON.parse(localStorage.getItem("sb_session"))); }} />;
+  if (loading) return <div style={S.loadWrap}><div style={S.spinner} /></div>;
+
+  return (
+    <div style={S.root}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}input:focus,select:focus{border-color:#c9a96e!important;}.hoverable:hover{background:#faf8f5!important;}`}</style>
+      <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+      {toast && <div style={{ ...S.toast, background: toast.type === "err" ? "#b91c1c" : "#166534" }}>{toast.msg}</div>}
+
+      <header style={S.header}>
+        <div style={S.headerInner}>
+          <div>
+            <div style={S.headerSub}>SP</div>
+            <h1 style={S.headerTitle}>Cosméticos</h1>
+          </div>
+          <button style={S.backupBtn} onClick={() => setShowBackup(v => !v)} title="Backup">💾</button>
+          <button style={{ ...S.backupBtn, background: "#fef2f2", color: "#b91c1c" }} onClick={async () => { if(confirm("Tens a certeza que queres sair?")) { await sbSignOut(); setSession(null); setData(INIT); } }} title="Sair">🚪</button>
+          {tab === "clients" && view === "list" && clientsMode === "orders" && <button style={S.newBtn} onClick={() => setView("form")}>+ Encomenda</button>}
+          {tab === "clients" && view === "list" && clientsMode === "byClient" && <button style={S.newBtn} onClick={() => setView("newClient")}>+ Cliente</button>}
+          {tab === "supplier" && view === "list" && <button style={{ ...S.newBtn, background: "#7c3aed", color: "#fff" }} onClick={() => setView("sform")}>+ Fornecedor</button>}
+        </div>
+        <div style={S.tabBar}>
+          {[
+            { id: "clients", label: "Clientes", icon: "👤" },
+            { id: "faltas", label: totalPending > 0 ? `Faltas (${totalPending})` : "Faltas", icon: "⚠️" },
+            { id: "dividas", label: clientsInDebt.length > 0 ? `Dívidas (${clientsInDebt.length})` : "Dívidas", icon: "💸" },
+            { id: "despesas", label: despesas.filter(d => !d.pago).length > 0 ? `Despesas (${despesas.filter(d=>!d.pago).length})` : "Despesas", icon: "📊" },
+            { id: "supplier", label: "Fornec.", icon: "🏭" },
+          ].map(t => (
+            <button key={t.id} style={{ ...S.tabBtn, ...(tab === t.id ? (t.id === "dividas" || t.id === "despesas" ? S.tabActiveAlt : S.tabActive) : {}) }}
+              onClick={() => { setTab(t.id); setView("list"); setSelectedOrder(null); setSelectedSupplier(null); }}>
+              <span>{t.icon}</span><span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {showBackup && (
+        <div style={S.backupPanel}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#2c2416", marginBottom: 12, letterSpacing: 1, textTransform: "uppercase" }}>Exportar & Backup</div>
+
+          {/* PDF exports */}
+          <div style={{ fontSize: 10, color: "#a08c6e", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Exportar PDF</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <button style={S.pdfBtn} onClick={() => { setShowExportClients(v => !v); setShowExportOrders(false); }}>📋 Lista de Clientes</button>
+            <button style={S.pdfBtn} onClick={() => { setShowExportOrders(v => !v); setShowExportClients(false); }}>📦 Encomendas por datas</button>
+          </div>
+
+          {/* Export clients options */}
+          {showExportClients && (
+            <div style={{ background: "#f5f0e8", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#2c2416", marginBottom: 10 }}>Como exportar os clientes?</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button style={S.backupExportBtn} onClick={() => exportClientsPDF("alfabetica")}>🔤 Ordem Alfabética</button>
+                <button style={S.backupExportBtn} onClick={() => exportClientsPDF("zona")}>🏘️ Por Zona / Localidade</button>
+              </div>
+            </div>
+          )}
+
+          {/* Export orders options */}
+          {showExportOrders && (
+            <div style={{ background: "#f5f0e8", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#2c2416", marginBottom: 10 }}>Seleciona o período de encomendas:</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div><div style={{ fontSize: 10, color: "#7a6a52", fontWeight: 600, marginBottom: 4 }}>DE</div><input style={{ ...S.input, width: 140, padding: "7px 10px" }} type="date" value={exportOrderDates.from} onChange={e => setExportOrderDates(f => ({ ...f, from: e.target.value }))} /></div>
+                <div><div style={{ fontSize: 10, color: "#7a6a52", fontWeight: 600, marginBottom: 4 }}>ATÉ</div><input style={{ ...S.input, width: 140, padding: "7px 10px" }} type="date" value={exportOrderDates.to} onChange={e => setExportOrderDates(f => ({ ...f, to: e.target.value }))} /></div>
+                <button style={S.backupExportBtn} onClick={() => exportOrdersPDF(exportOrderDates.from, exportOrderDates.to)}>📄 Gerar PDF</button>
+              </div>
+            </div>
+          )}
+
+          {/* JSON backup */}
+          <div style={{ fontSize: 10, color: "#a08c6e", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Backup de Dados</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={S.backupExportBtn} onClick={exportData}>⬇️ Exportar backup (.json)</button>
+            <label style={S.backupImportBtn}>
+              ⬆️ Importar backup
+              <input type="file" accept=".json" style={{ display: "none" }} onChange={importData} />
+            </label>
+          </div>
+          <div style={{ fontSize: 11, color: "#a08c6e", marginTop: 8 }}>
+            Guarda o ficheiro .json num lugar seguro. Para restaurar, usa "Importar backup".
+          </div>
+        </div>
+      )}
+
+      <main style={S.main}>
+
+        {/* CLIENTS */}
+        {tab === "clients" && (
+          <>
+            {view === "form" && (
+              <div style={S.card}>
+                <div style={S.cardHead}><h2 style={S.cardTitle}>Nova Encomenda</h2><button style={S.cancelBtn} onClick={() => setView("list")}>✕</button></div>
+                <Field label="Data"><input style={S.input} type="date" value={clientForm.date} onChange={e => setClientForm(f => ({ ...f, date: e.target.value }))} /></Field>
+                <Field label="Cliente"><input style={S.input} type="text" placeholder="Nome do cliente..." value={clientForm.client} onChange={e => setClientForm(f => ({ ...f, client: e.target.value }))} onKeyDown={e => e.key === "Enter" && createClientOrder()} /></Field>
+                <Field label="Nota (opcional)"><input style={S.input} type="text" placeholder="Observações..." value={clientForm.note} onChange={e => setClientForm(f => ({ ...f, note: e.target.value }))} /></Field>
+                <button style={S.submitBtn} onClick={createClientOrder}>Criar Encomenda →</button>
+              </div>
+            )}
+            {view === "detail" && selectedOrder && (() => {
+              const order = data.orders.find(o => o.id === selectedOrder.id) || selectedOrder;
+              const { total, done, pct } = stats(order.products);
+              return (
+                <div style={{ animation: "fadeIn .2s ease" }}>
+                  <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                  <div style={S.card}>
+                    <div style={S.detailTop}>
+                      <div><div style={S.detailDate}>{formatDate(order.date)}</div><h2 style={S.detailClient}>{order.client}</h2>{order.note && <p style={S.detailNote}>"{order.note}"</p>}</div>
+                      <button style={S.delBtn} onClick={() => deleteClientOrder(order.id)}>🗑</button>
+                    </div>
+                    <ProgressBar pct={pct} label={`${done}/${total} prontos`} />
+                    <div style={S.valorRow}>
+                      <div style={S.valorBlock}>
+                        <div style={S.valorLabel}>VALOR DA ENCOMENDA</div>
+                        {editingValor ? (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <input style={{ ...S.input, width: 110, padding: "6px 10px", fontSize: 15, fontWeight: 600 }} type="number" min="0" step="0.01" placeholder="0.00" value={valorInput} onChange={e => setValorInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") setOrderValor(order.id, valorInput); if (e.key === "Escape") setEditingValor(false); }} autoFocus />
+                            <button style={S.valorSaveBtn} onClick={() => setOrderValor(order.id, valorInput)}>✓</button>
+                            <button style={S.valorCancelBtn} onClick={() => setEditingValor(false)}>✕</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={S.valorAmount}>{fmtMoney(order.valor)}</span>
+                            <button style={S.editValorBtn} onClick={() => { setValorInput(order.valor ?? ""); setEditingValor(true); }}>✏️</button>
+                          </div>
+                        )}
+                      </div>
+                      <div style={S.pagoBlock}>
+                        <div style={S.valorLabel}>PAGAMENTO</div>
+                        <button style={{ ...S.pagoBtn, background: order.pago ? "#166534" : "#fff", color: order.pago ? "#fff" : "#7a6a52", border: `2px solid ${order.pago ? "#166534" : "#c9b99a"}` }} onClick={() => togglePago(order.id)}>
+                          {order.pago ? "✓ Pago" : "Não Pago"}
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ ...S.sectionSubtitle, marginTop: 20 }}>PRODUTOS</div>
+                    <div style={S.prodList}>
+                      {order.products.length === 0 && <p style={S.emptyProd}>Sem produtos ainda ↓</p>}
+                      {order.products.map(p => (
+                        <div key={p.id} style={{ ...S.prodRow, opacity: p.status === "tenho" ? 0.5 : 1 }}>
+                          <button style={{ ...S.checkBtn, background: p.status === "tenho" ? "#166534" : "transparent", borderColor: p.status === "tenho" ? "#166534" : "#c9b99a" }} onClick={() => toggleClientProduct(order.id, p.id)}>{p.status === "tenho" ? "✓" : ""}</button>
+                          <span style={{ ...S.prodName, textDecoration: p.status === "tenho" ? "line-through" : "none" }}>{p.name}</span>
+                          <span style={{ ...S.pill, background: p.status === "tenho" ? "#dcfce7" : "#fef9c3", color: p.status === "tenho" ? "#166534" : "#854d0e" }}>{p.status === "tenho" ? "✓ Tenho" : "⏳ Pendente"}</span>
+                          <button style={S.xBtn} onClick={() => deleteClientProduct(order.id, p.id)}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    <AddRow value={newProduct} onChange={setNewProduct} onAdd={() => addClientProduct(order.id)} placeholder="Nome do produto..." />
+                  </div>
+                </div>
+              );
+            })()}
+            {view === "newClient" && (
+              <div style={{ animation: "fadeIn .2s ease" }}>
+                <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                <div style={S.card}>
+                  <div style={S.cardHead}><h2 style={S.cardTitle}>Nova Cliente</h2><button style={S.cancelBtn} onClick={() => setView("list")}>✕</button></div>
+                  <Field label="Nome *"><input style={S.input} type="text" placeholder="Nome da cliente..." value={clientNewForm.nome} onChange={e => setClientNewForm(f => ({ ...f, nome: e.target.value }))} autoFocus /></Field>
+                  <Field label="Telemóvel / Telefone"><input style={S.input} type="tel" placeholder="9XX XXX XXX" value={clientNewForm.contacto} onChange={e => setClientNewForm(f => ({ ...f, contacto: e.target.value }))} /></Field>
+                  <Field label="Morada"><input style={S.input} type="text" placeholder="Rua, nº..." value={clientNewForm.morada} onChange={e => setClientNewForm(f => ({ ...f, morada: e.target.value }))} /></Field>
+                  <Field label="Localidade"><input style={S.input} type="text" placeholder="Cidade / Freguesia..." value={clientNewForm.localidade} onChange={e => setClientNewForm(f => ({ ...f, localidade: e.target.value }))} /></Field>
+                  <Field label="Comercial"><input style={S.input} type="text" placeholder="Nome do comercial..." value={clientNewForm.comercial} onChange={e => setClientNewForm(f => ({ ...f, comercial: e.target.value }))} /></Field>
+                  <button style={S.submitBtn} onClick={createNewClient}>Adicionar Cliente →</button>
+                </div>
+              </div>
+            )}
+            {view === "clientProfile" && selectedClientName && (() => {
+              const profile = clientProfiles.find(c => c.name.toLowerCase() === selectedClientName.toLowerCase()) || { orders: [], pendingCount: 0 };
+              const productHistory = getClientProductHistory(selectedClientName);
+              const clientOrders = data.orders.filter(o => o.client.toLowerCase().trim() === selectedClientName.toLowerCase().trim()).sort((a, b) => b.date.localeCompare(a.date));
+              const totalValor = clientOrders.reduce((s, o) => s + (o.valor ?? 0), 0);
+              const totalPago = clientOrders.filter(o => o.pago).reduce((s, o) => s + (o.valor ?? 0), 0);
+              const divida = totalValor - totalPago;
+              return (
+                <div style={{ animation: "fadeIn .2s ease" }}>
+                  <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                  <div style={{ ...S.card, background: "linear-gradient(135deg,#2c2416,#3d3022)", color: "#f5f0e8", marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, letterSpacing: 2, color: "#c9a96e", fontWeight: 600, marginBottom: 4, textTransform: "uppercase" }}>Perfil de Cliente</div>
+                    <h2 style={{ margin: "0 0 16px", fontFamily: "'Playfair Display',serif", fontSize: 26, fontWeight: 700 }}>{selectedClientName}</h2>
+                    <div style={{ display: "flex", gap: 20 }}><StatBox value={clientOrders.length} label="Encomendas" /><StatBox value={profile.pendingCount || 0} label="Pendentes" color="#fbbf24" /></div>
+                  </div>
+                  {/* Contact info */}
+                  {(() => {
+                    const contact = getContact(selectedClientName);
+                    return editingContact ? (
+                      <div style={{ ...S.card, marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#2c2416", marginBottom: 12, letterSpacing: 1, textTransform: "uppercase" }}>Editar Contacto</div>
+                        <Field label="Telemóvel / Telefone"><input style={S.input} type="tel" placeholder="9XX XXX XXX" value={contactForm.contacto} onChange={e => setContactForm(f => ({ ...f, contacto: e.target.value }))} /></Field>
+                        <Field label="Morada"><input style={S.input} type="text" placeholder="Rua, nº..." value={contactForm.morada} onChange={e => setContactForm(f => ({ ...f, morada: e.target.value }))} /></Field>
+                        <Field label="Localidade"><input style={S.input} type="text" placeholder="Cidade / Freguesia..." value={contactForm.localidade} onChange={e => setContactForm(f => ({ ...f, localidade: e.target.value }))} /></Field>
+                        <Field label="Comercial"><input style={S.input} type="text" placeholder="Nome do comercial..." value={contactForm.comercial || ""} onChange={e => setContactForm(f => ({ ...f, comercial: e.target.value }))} /></Field>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button style={{ ...S.submitBtn, flex: 1 }} onClick={() => saveClientContact(selectedClientName, contactForm)}>Guardar</button>
+                          <button style={{ ...S.valorCancelBtn, flex: 0 }} onClick={() => setEditingContact(false)}>Cancelar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ ...S.card, marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 8 }}>Contacto</div>
+                          {contact.contacto && <div style={{ fontSize: 14, marginBottom: 4 }}>📞 <a href={"tel:" + contact.contacto} style={{ color: "#2c2416", textDecoration: "none", fontWeight: 600 }}>{contact.contacto}</a></div>}
+                          {contact.morada && <div style={{ fontSize: 13, color: "#7a6a52", marginBottom: 2 }}>📍 {contact.morada}</div>}
+                          {contact.localidade && <div style={{ fontSize: 13, color: "#7a6a52" }}>🏘️ {contact.localidade}</div>}
+                          {contact.comercial && <div style={{ fontSize: 13, color: "#7a6a52" }}>👤 Comercial: <strong>{contact.comercial}</strong></div>}
+                          {!contact.contacto && !contact.morada && !contact.localidade && <div style={{ fontSize: 13, color: "#c9b99a", fontStyle: "italic" }}>Sem contacto registado</div>}
+                        </div>
+                        <button style={S.editValorBtn} onClick={() => { setContactForm({ contacto: contact.contacto || "", morada: contact.morada || "", localidade: contact.localidade || "" }); setEditingContact(true); }}>✏️</button>
+                      </div>
+                    );
+                  })()}
+                  <div style={S.contaCard}>
+                    <div style={S.contaTitle}>💰 Conta Corrente</div>
+                    <div style={S.contaGrid}>
+                      <div style={S.contaItem}><div style={S.contaItemLabel}>Total Faturado</div><div style={{ ...S.contaItemValue, color: "#2c2416" }}>{fmtMoney(totalValor)}</div></div>
+                      <div style={S.contaItem}><div style={S.contaItemLabel}>Total Pago</div><div style={{ ...S.contaItemValue, color: "#166534" }}>{fmtMoney(totalPago)}</div></div>
+                      <div style={{ ...S.contaItem, background: divida > 0 ? "#fef2f2" : "#f0fdf4", borderRadius: 10, padding: "10px 14px" }}>
+                        <div style={{ ...S.contaItemLabel, color: divida > 0 ? "#991b1b" : "#166534" }}>Em Dívida</div>
+                        <div style={{ ...S.contaItemValue, color: divida > 0 ? "#b91c1c" : "#166534", fontSize: 22 }}>{fmtMoney(divida)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={S.sectionSubtitle}>HISTÓRICO DE ENCOMENDAS</div>
+                    {clientOrders.map(order => {
+                      const { total, done, pct } = stats(order.products);
+                      return (
+                        <div key={order.id} style={S.accountRow} className="hoverable" onClick={() => { setSelectedOrder(order); setView("detail"); }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", gap: 8, marginBottom: 3 }}><div style={S.listDate}>{formatDate(order.date)}</div>{order.note && <div style={S.listNote}>{order.note}</div>}</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginBottom: 4 }}>{order.products.slice(0, 4).map(p => <span key={p.id} style={{ ...S.pill, background: p.status === "tenho" ? "#dcfce7" : "#fef9c3", color: p.status === "tenho" ? "#166534" : "#854d0e", fontSize: 9 }}>{p.name}</span>)}{order.products.length > 4 && <span style={{ ...S.pill, background: "#f0ebe3", color: "#7a6a52", fontSize: 9 }}>+{order.products.length - 4}</span>}</div>
+                            <MiniBar pct={pct} label={`${done}/${total}`} />
+                          </div>
+                          <div style={S.accountRight}>
+                            <div style={S.accountValor}>{order.valor != null ? fmtMoney(order.valor) : "—"}</div>
+                            <div style={{ ...S.accountPago, background: order.pago ? "#dcfce7" : order.valor != null ? "#fef2f2" : "#f5f0e8", color: order.pago ? "#166534" : order.valor != null ? "#b91c1c" : "#a08c6e" }}>{order.pago ? "✓ Pago" : order.valor != null ? "Por pagar" : "Sem valor"}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div>
+                    <div style={S.sectionSubtitle}>PRODUTOS ENCOMENDADOS</div>
+                    {productHistory.map((ph, i) => {
+                      const timesOrdered = ph.entries.length;
+                      const lastEntry = [...ph.entries].sort((a, b) => b.date.localeCompare(a.date))[0];
+                      const pendingCount = ph.entries.filter(e => e.status === "pendente").length;
+                      return (
+                        <div key={i} style={S.historyCard}>
+                          <div style={S.historyLeft}>
+                            <div style={S.historyProdName}>{ph.name}</div>
+                            <div style={S.historyMeta}>Última vez: <strong>{formatDate(lastEntry.date)}</strong> · <strong>{timesOrdered}×</strong></div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                              {[...ph.entries].sort((a, b) => b.date.localeCompare(a.date)).map((e, j) => <span key={j} style={{ ...S.dateChip, background: e.status === "tenho" ? "#dcfce7" : "#f5f0e8", color: e.status === "tenho" ? "#166534" : "#7a6a52", borderColor: e.status === "tenho" ? "#86efac" : "#e0d8cc" }}>{e.status === "tenho" ? "✓ " : ""}{formatDate(e.date)}</span>)}
+                            </div>
+                          </div>
+                          <div style={S.historyRight}>
+                            <div style={{ ...S.freqBadge, background: timesOrdered >= 3 ? "#fef3c7" : "#f5f0e8", color: timesOrdered >= 3 ? "#92400e" : "#7a6a52" }}>{timesOrdered}×</div>
+                            {pendingCount > 0 && <div style={S.pendingDot}>!</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+            {view === "list" && (
+              <>
+                <div style={S.modeToggleWrap}>
+                  <button style={{ ...S.modeBtn, ...(clientsMode === "orders" ? S.modeBtnActive : {}) }} onClick={() => setClientsMode("orders")}>📋 Por Encomenda</button>
+                  <button style={{ ...S.modeBtn, ...(clientsMode === "byClient" ? S.modeBtnActive : {}) }} onClick={() => setClientsMode("byClient")}>👤 Por Cliente</button>
+                </div>
+                {clientsMode === "orders" && (
+                  <>
+                    <div style={S.searchRow}><input style={S.searchInput} placeholder="🔍 Filtrar por cliente..." value={filterClient} onChange={e => setFilterClient(e.target.value)} />{filterClient && <button style={S.clearBtn} onClick={() => setFilterClient("")}>✕</button>}</div>
+                    {filteredOrders.length === 0 && <Empty icon="📋" text={"Sem encomendas ainda.\nClica em '+ Nova' para começar."} />}
+                    {filteredOrders.map(order => {
+                      const { total, done, pct } = stats(order.products);
+                      return (
+                        <div key={order.id} style={S.listCard} className="hoverable" onClick={() => { setSelectedOrder(order); setView("detail"); }}>
+                          <div style={S.listLeft}><div style={S.listDate}>{formatDate(order.date)}</div><div style={S.listClient}>{order.client}</div>{order.note && <div style={S.listNote}>{order.note}</div>}<MiniBar pct={pct} label={`${done}/${total}`} /></div>
+                          <div style={S.listRight}>
+                            <div style={{ textAlign: "right" }}>{order.valor != null && <div style={S.listValor}>{fmtMoney(order.valor)}</div>}<div style={{ ...S.listPago, background: order.pago ? "#dcfce7" : order.valor != null ? "#fef2f2" : "transparent", color: order.pago ? "#166534" : order.valor != null ? "#b91c1c" : "transparent" }}>{order.pago ? "✓ Pago" : order.valor != null ? "Por pagar" : ""}</div></div>
+                            <Ring pct={pct} /><span style={S.arrow}>→</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                {clientsMode === "byClient" && (
+                  <>
+                    {(allLocalidades.length > 0 || allComerciais.length > 0) && (
+                      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                        {allLocalidades.length > 0 && (
+                          <select style={{ ...S.input, flex: 1, minWidth: 140, padding: "8px 12px", cursor: "pointer" }}
+                            value={filterLocalidade} onChange={e => setFilterLocalidade(e.target.value)}>
+                            <option value="">🏘️ Todas as localidades</option>
+                            {allLocalidades.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                          </select>
+                        )}
+                        {allComerciais.length > 0 && (
+                          <select style={{ ...S.input, flex: 1, minWidth: 140, padding: "8px 12px", cursor: "pointer" }}
+                            value={filterComercial} onChange={e => setFilterComercial(e.target.value)}>
+                            <option value="">👤 Todos os comerciais</option>
+                            {allComerciais.map(com => <option key={com} value={com}>{com}</option>)}
+                          </select>
+                        )}
+                        {(filterLocalidade || filterComercial) && (
+                          <button style={{ ...S.clearBtn, whiteSpace: "nowrap" }} onClick={() => { setFilterLocalidade(""); setFilterComercial(""); }}>✕ Limpar</button>
+                        )}
+                      </div>
+                    )}
+                    {clientProfiles.length === 0 && <Empty icon="👤" text={"Sem clientes ainda."} />}
+                    {clientProfiles.filter(cp => (!filterLocalidade || cp.contact?.localidade === filterLocalidade) && (!filterComercial || cp.contact?.comercial === filterComercial)).map((cp, i) => {
+                      const lastOrder = [...cp.orders].sort((a, b) => b.date.localeCompare(a.date))[0];
+                      const allProductNames = [...new Set(cp.orders.flatMap(o => o.products.map(p => p.name.toLowerCase().trim())))];
+                      const divida = cp.totalValor - cp.totalPago;
+                      return (
+                        <div key={i} style={S.clientCard} className="hoverable" onClick={() => { setSelectedClientName(cp.name); setView("clientProfile"); }}>
+                          <div style={S.clientInitialWrap}><div style={S.clientInitial}>{cp.name.charAt(0).toUpperCase()}</div></div>
+                          <div style={{ flex: 1 }}>
+                            <div style={S.clientCardName}>{cp.name}</div>
+                            <div style={S.clientCardMeta}>{cp.orders.length} encomenda{cp.orders.length !== 1 ? "s" : ""} · última: {formatDate(lastOrder?.date)}{cp.contact?.localidade ? " · " + cp.contact.localidade : ""}</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>{allProductNames.slice(0, 3).map((pn, j) => <span key={j} style={S.prodChip}>{pn}</span>)}{allProductNames.length > 3 && <span style={{ ...S.prodChip, background: "#e8e0d0" }}>+{allProductNames.length - 3}</span>}</div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: 10 }}>
+                            {cp.totalValor > 0 && <div style={S.clientValor}>{fmtMoney(cp.totalValor)}</div>}
+                            {divida > 0 && <div style={S.clientDivida}>Deve {fmtMoney(divida)}</div>}
+                            {cp.contact?.comercial && <div style={{ ...S.pendingBadge, background: '#ede9fe', color: '#5b21b6' }}>{cp.contact.comercial}</div>}
+                            {cp.pendingCount > 0 && <div style={S.pendingBadge}>{cp.pendingCount} pend.</div>}
+                            <span style={S.arrow}>→</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* FALTAS */}
+        {tab === "faltas" && (
+          <div>
+            <div style={{ marginBottom: 18 }}><h2 style={S.sectionTitle}>Lista de Faltas</h2><p style={{ margin: "4px 0 0", fontSize: 13, color: "#7a6a52" }}>Produtos pendentes em encomendas de clientes</p></div>
+            {faltas.length === 0 && <Empty icon="✅" text={"Sem faltas!\nTodos os produtos estão disponíveis."} />}
+            {faltas.length > 0 && (<>
+              <button style={S.sendAllBtn} onClick={() => addFaltasToSupplier(faltas.map(f => f.name))}>📦 Enviar tudo para o fornecedor mais recente</button>
+              {faltas.map((f, i) => (
+                <div key={i} style={S.faltaCard} className="hoverable">
+                  <div style={{ flex: 1 }}><div style={S.faltaName}>{f.name}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 5 }}>{f.clients.map((c, j) => <span key={j} style={S.clientChip}>{c}</span>)}</div></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={S.faltaCount}>{f.count}×</div><button style={S.sendOneBtn} onClick={() => addFaltasToSupplier([f.name])}>📦</button></div>
+                </div>
+              ))}
+            </>)}
+          </div>
+        )}
+
+        {/* DIVIDAS */}
+        {tab === "dividas" && (
+          <div style={{ animation: "fadeIn .2s ease" }}>
+            {clientsInDebt.length === 0 ? <Empty icon="🎉" text={"Sem dívidas em aberto!\nTodos os clientes estão com a conta em dia."} /> : (
+              <>
+                <div style={S.debtBanner}>
+                  <div style={{ fontSize: 10, letterSpacing: 2, color: "#fca5a5", fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>Total em Dívida</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'Playfair Display',serif", color: "#fff", marginBottom: 6 }}>{fmtMoney(totalDebt)}</div>
+                  <div style={{ fontSize: 12, color: "#fca5a5" }}>{clientsInDebt.length} cliente{clientsInDebt.length !== 1 ? "s" : ""} com saldo em aberto</div>
+                </div>
+                {[...clientsInDebt].sort((a, b) => (b.totalValor - b.totalPago) - (a.totalValor - a.totalPago)).map((cp, i) => {
+                  const divida = cp.totalValor - cp.totalPago;
+                  const lastOrder = [...cp.orders].sort((a, b) => b.date.localeCompare(a.date))[0];
+                  const unpaidOrders = cp.orders.filter(o => !o.pago && o.valor != null).sort((a, b) => b.date.localeCompare(a.date));
+                  return (
+                    <div key={i} style={S.debtCard} className="hoverable" onClick={() => { setSelectedClientName(cp.name); setTab("clients"); setView("clientProfile"); }}>
+                      <div style={S.clientInitialWrap}><div style={{ ...S.clientInitial, background: "linear-gradient(135deg,#b91c1c,#7f1d1d)" }}>{cp.name.charAt(0).toUpperCase()}</div></div>
+                      <div style={{ flex: 1 }}>
+                        <div style={S.clientCardName}>{cp.name}</div>
+                        <div style={{ fontSize: 11, color: "#7a6a52", marginBottom: 8 }}>{unpaidOrders.length} encomenda{unpaidOrders.length !== 1 ? "s" : ""} por pagar · última: {formatDate(lastOrder?.date)}</div>
+                        {unpaidOrders.slice(0, 3).map(o => (
+                          <div key={o.id} style={S.debtOrderRow}><span style={S.debtOrderDate}>{formatDate(o.date)}</span>{o.note && <span style={{ fontSize: 11, color: "#a08c6e", fontStyle: "italic", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.note}</span>}<span style={S.debtOrderValor}>{fmtMoney(o.valor)}</span></div>
+                        ))}
+                        {unpaidOrders.length > 3 && <div style={{ fontSize: 11, color: "#a08c6e", marginTop: 4 }}>+{unpaidOrders.length - 3} mais...</div>}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, marginLeft: 14, flexShrink: 0 }}>
+                        <div style={S.debtAmount}>{fmtMoney(divida)}</div>
+                        <div style={S.debtLabel}>em dívida</div>
+                        <span style={S.arrow}>→</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* DESPESAS */}
+        {tab === "despesas" && (
+          <div style={{ animation: "fadeIn .2s ease" }}>
+            <div style={S.despBanner}>
+              <div style={{ fontSize: 10, letterSpacing: 2, color: "#bfdbfe", fontWeight: 600, textTransform: "uppercase", marginBottom: 10 }}>Resumo de Despesas</div>
+              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                <div><div style={{ fontSize: 22, fontWeight: 700, color: "#fff", fontFamily: "'Playfair Display',serif" }}>{fmtMoney(despesasPagas + despesasPendentes)}</div><div style={{ fontSize: 10, color: "#bfdbfe", textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>Total</div></div>
+                <div><div style={{ fontSize: 22, fontWeight: 700, color: "#86efac", fontFamily: "'Playfair Display',serif" }}>{fmtMoney(despesasPagas)}</div><div style={{ fontSize: 10, color: "#bfdbfe", textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>Pago</div></div>
+                <div><div style={{ fontSize: 22, fontWeight: 700, color: "#fca5a5", fontFamily: "'Playfair Display',serif" }}>{fmtMoney(despesasPendentes)}</div><div style={{ fontSize: 10, color: "#bfdbfe", textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>Por Pagar</div></div>
+              </div>
+            </div>
+
+            <div style={S.card}>
+              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#2c2416" }}>Nova Despesa</h3>
+              <div style={{ marginBottom: 10 }}>
+                <Field label="Descrição"><input style={S.input} type="text" placeholder="Ex: Fatura água, Renda loja..." value={despesaForm.descricao} onChange={e => setDespesaForm(f => ({ ...f, descricao: e.target.value }))} /></Field>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                <Field label="Valor (€)"><input style={S.input} type="number" min="0" step="0.01" placeholder="0.00" value={despesaForm.valor} onChange={e => setDespesaForm(f => ({ ...f, valor: e.target.value }))} /></Field>
+                <Field label="Data de Pagamento"><input style={S.input} type="date" value={despesaForm.dataPagamento} onChange={e => setDespesaForm(f => ({ ...f, dataPagamento: e.target.value }))} /></Field>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <Field label="Categoria">
+                  <select style={{ ...S.input, cursor: "pointer" }} value={despesaForm.categoria} onChange={e => setDespesaForm(f => ({ ...f, categoria: e.target.value }))}>
+                    {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <label style={S.label}>Estado</label>
+                  <button style={{ ...S.pagoBtn, background: despesaForm.pago ? "#166534" : "#fff", color: despesaForm.pago ? "#fff" : "#7a6a52", border: `2px solid ${despesaForm.pago ? "#166534" : "#c9b99a"}`, marginTop: 2 }} onClick={() => setDespesaForm(f => ({ ...f, pago: !f.pago }))}>
+                    {despesaForm.pago ? "✓ Já Pago" : "Por Pagar"}
+                  </button>
+                </div>
+              </div>
+              <button style={{ ...S.submitBtn, background: "#1e40af" }} onClick={addDespesa}>+ Adicionar Despesa</button>
+            </div>
+
+            <div style={S.modeToggleWrap}>
+              {[["todas", "Todas"], ["pendentes", "⏳ Por Pagar"], ["pagas", "✓ Pagas"]].map(([val, label]) => (
+                <button key={val} style={{ ...S.modeBtn, ...(despesaFilter === val ? S.modeBtnActive : {}) }} onClick={() => setDespesaFilter(val)}>{label}</button>
+              ))}
+            </div>
+
+            {(() => {
+              const filtered = despesas.filter(d => despesaFilter === "todas" ? true : despesaFilter === "pagas" ? d.pago : !d.pago).sort((a, b) => b.dataPagamento.localeCompare(a.dataPagamento));
+              if (filtered.length === 0) return <Empty icon="📂" text={"Sem despesas registadas.\nAdiciona a primeira acima."} />;
+              return filtered.map(d => {
+                const isOverdue = !d.pago && d.dataPagamento < todayStr();
+                return (
+                  <div key={d.id} style={{ ...S.despCard, borderColor: isOverdue ? "#fca5a5" : d.pago ? "#bbf7d0" : "#e8e0d0" }} className="hoverable">
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                        <span style={{ ...S.despCategoria, background: d.pago ? "#dcfce7" : isOverdue ? "#fef2f2" : "#eff6ff", color: d.pago ? "#166534" : isOverdue ? "#b91c1c" : "#1e40af" }}>{d.categoria}</span>
+                        {isOverdue && <span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c", letterSpacing: 0.5 }}>VENCIDA</span>}
+                      </div>
+                      <div style={S.despDescricao}>{d.descricao}</div>
+                      <div style={{ fontSize: 11, color: "#a08c6e", marginTop: 4 }}>Data de pagamento: <strong>{formatDate(d.dataPagamento)}</strong></div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, marginLeft: 12, flexShrink: 0 }}>
+                      <div style={{ ...S.despValor, color: d.pago ? "#166534" : isOverdue ? "#b91c1c" : "#1e40af" }}>{fmtMoney(d.valor)}</div>
+                      <button style={{ ...S.pagoBtn, background: d.pago ? "#166534" : "#fff", color: d.pago ? "#fff" : "#7a6a52", border: `2px solid ${d.pago ? "#166534" : "#c9b99a"}`, fontSize: 11, padding: "5px 12px" }} onClick={() => toggleDespesaPago(d.id)}>
+                        {d.pago ? "✓ Pago" : "Por Pagar"}
+                      </button>
+                      <button style={S.despDelBtn} onClick={() => deleteDespesa(d.id)}>🗑 Eliminar</button>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
+
+        {/* FORNECEDORES */}
+        {tab === "supplier" && (
+          <>
+            {view === "sform" && (
+              <div style={S.card}>
+                <div style={S.cardHead}><h2 style={{ ...S.cardTitle, color: "#7c3aed" }}>Novo Fornecedor</h2><button style={S.cancelBtn} onClick={() => setView("list")}>✕</button></div>
+                <Field label="Data"><input style={S.input} type="date" value={supplierForm.date} onChange={e => setSupplierForm(f => ({ ...f, date: e.target.value }))} /></Field>
+                <Field label="Fornecedor"><input style={S.input} type="text" placeholder="Nome do fornecedor..." value={supplierForm.supplier} onChange={e => setSupplierForm(f => ({ ...f, supplier: e.target.value }))} onKeyDown={e => e.key === "Enter" && createSupplierOrder()} /></Field>
+                <Field label="Nota (opcional)"><input style={S.input} type="text" placeholder="Observações..." value={supplierForm.note} onChange={e => setSupplierForm(f => ({ ...f, note: e.target.value }))} /></Field>
+                <button style={{ ...S.submitBtn, background: "#7c3aed" }} onClick={createSupplierOrder}>Criar Encomenda →</button>
+              </div>
+            )}
+            {view === "sdetail" && selectedSupplier && (() => {
+              const so = supplierOrders.find(s => s.id === selectedSupplier.id) || selectedSupplier;
+              const { total, done, pct } = stats(so.products);
+              return (
+                <div style={{ animation: "fadeIn .2s ease" }}>
+                  <button style={S.backBtn} onClick={() => setView("list")}>← Voltar</button>
+                  <div style={S.card}>
+                    <div style={S.detailTop}><div><div style={S.detailDate}>{formatDate(so.date)}</div><h2 style={{ ...S.detailClient, color: "#7c3aed" }}>{so.supplier}</h2>{so.note && <p style={S.detailNote}>"{so.note}"</p>}</div><button style={S.delBtn} onClick={() => deleteSupplierOrder(so.id)}>🗑</button></div>
+                    <ProgressBar pct={pct} label={`${done}/${total} recebidos`} color="#7c3aed" />
+                    <div style={S.prodList}>
+                      {so.products.length === 0 && <p style={S.emptyProd}>Sem produtos. Adiciona abaixo ou usa "Faltas" ↓</p>}
+                      {so.products.map(p => (
+                        <div key={p.id} style={{ ...S.prodRow, opacity: p.status === "recebido" ? 0.5 : 1 }}>
+                          <button style={{ ...S.checkBtn, background: p.status === "recebido" ? "#7c3aed" : "transparent", borderColor: p.status === "recebido" ? "#7c3aed" : "#c9b99a" }} onClick={() => toggleSupplierProduct(so.id, p.id)}>{p.status === "recebido" ? "✓" : ""}</button>
+                          <span style={{ ...S.prodName, textDecoration: p.status === "recebido" ? "line-through" : "none" }}>{p.name}</span>
+                          <span style={{ ...S.pill, background: p.status === "recebido" ? "#ede9fe" : "#fef3c7", color: p.status === "recebido" ? "#5b21b6" : "#92400e" }}>{p.status === "recebido" ? "✓ Recebido" : "📦 Encomendado"}</span>
+                          <button style={S.xBtn} onClick={() => deleteSupplierProduct(so.id, p.id)}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    <AddRow value={newSProduct} onChange={setNewSProduct} onAdd={() => addSupplierProduct(so.id)} placeholder="Nome do produto..." />
+                  </div>
+                </div>
+              );
+            })()}
+            {view === "list" && (
+              <>
+                {supplierOrders.length === 0 && <Empty icon="🏭" text={"Sem encomendas a fornecedores.\nClica em '+ Fornecedor' para criar."} />}
+                {supplierOrders.map(so => {
+                  const { total, done, pct } = stats(so.products);
+                  return (
+                    <div key={so.id} style={S.listCard} className="hoverable" onClick={() => { setSelectedSupplier(so); setView("sdetail"); }}>
+                      <div style={S.listLeft}><div style={S.listDate}>{formatDate(so.date)}</div><div style={{ ...S.listClient, color: "#7c3aed" }}>{so.supplier}</div>{so.note && <div style={S.listNote}>{so.note}</div>}<MiniBar pct={pct} label={`${done}/${total}`} color="#7c3aed" /></div>
+                      <div style={S.listRight}><Ring pct={pct} color="#7c3aed" /><span style={S.arrow}>→</span></div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function Field({ label, children }) { return <div style={{ marginBottom: 12 }}><label style={S.label}>{label}</label>{children}</div>; }
+function StatBox({ value, label, color = "#f5f0e8" }) { return <div style={{ textAlign: "center" }}><div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: "'Playfair Display',serif" }}>{value}</div><div style={{ fontSize: 10, color: "#c9b99a", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div></div>; }
+function ProgressBar({ pct, label, color = "#2d6a4f" }) { return <div style={{ marginBottom: 18 }}><div style={{ height: 6, background: "#f0ebe3", borderRadius: 99, overflow: "hidden", marginBottom: 6 }}><div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,#c9a96e,${color})`, borderRadius: 99, transition: "width .4s" }} /></div><span style={{ fontSize: 12, color: "#7a6a52", fontWeight: 500 }}>{label}</span></div>; }
+function MiniBar({ pct, label, color = "#2d6a4f" }) { return <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}><div style={{ flex: 1, height: 4, background: "#f0ebe3", borderRadius: 99, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg,#c9a96e,${color})`, borderRadius: 99 }} /></div><span style={{ fontSize: 11, color: "#7a6a52", fontWeight: 600 }}>{label}</span></div>; }
+function Ring({ pct, color = "#2d6a4f" }) { return <div style={{ width: 42, height: 42, borderRadius: "50%", border: `2.5px solid ${pct === 100 ? color : "#c9b99a"}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 11, fontWeight: 700, color: pct === 100 ? color : "#7a6a52" }}>{pct}%</span></div>; }
+function AddRow({ value, onChange, onAdd, placeholder }) { return <div style={{ display: "flex", gap: 8 }}><input style={{ ...S.input, flex: 1 }} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} onKeyDown={e => e.key === "Enter" && onAdd()} /><button style={S.addBtn} onClick={onAdd}>Adicionar</button></div>; }
+function Empty({ icon, text }) { return <div style={{ textAlign: "center", padding: "60px 20px" }}><div style={{ fontSize: 50, marginBottom: 12 }}>{icon}</div><p style={{ color: "#a08c6e", fontSize: 15, lineHeight: 1.8, whiteSpace: "pre-line" }}>{text}</p></div>; }
+
+const S = {
+  root: { minHeight: "100vh", background: "#f5f0e8", fontFamily: "'DM Sans',sans-serif", color: "#2c2416" },
+  loadWrap: { height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f0e8" },
+  spinner: { width: 30, height: 30, border: "3px solid #e0d8cc", borderTop: "3px solid #c9a96e", borderRadius: "50%", animation: "spin .8s linear infinite" },
+  toast: { position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", color: "#fff", padding: "10px 24px", borderRadius: 30, fontSize: 14, fontWeight: 500, zIndex: 999, boxShadow: "0 4px 20px rgba(0,0,0,.2)", whiteSpace: "nowrap" },
+  header: { background: "#2c2416" },
+  headerInner: { maxWidth: 640, margin: "0 auto", padding: "20px 20px 14px", display: "flex", alignItems: "flex-end", justifyContent: "space-between" },
+  headerSub: { fontSize: 10, letterSpacing: 3, color: "#a08c6e", fontWeight: 500, marginBottom: 2 },
+  headerTitle: { margin: 0, fontFamily: "'Playfair Display',serif", fontSize: 30, fontWeight: 700, color: "#f5f0e8" },
+  newBtn: { background: "#c9a96e", color: "#2c2416", border: "none", borderRadius: 30, padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  tabBar: { maxWidth: 640, margin: "0 auto", display: "flex", borderTop: "1px solid #3d3022" },
+  tabBtn: { flex: 1, background: "none", border: "none", color: "#a08c6e", padding: "9px 2px", fontSize: 9, fontWeight: 500, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 3, borderBottom: "2px solid transparent" },
+  tabActive: { color: "#c9a96e", borderBottom: "2px solid #c9a96e" },
+  tabActiveAlt: { color: "#f87171", borderBottom: "2px solid #f87171" },
+  main: { maxWidth: 640, margin: "0 auto", padding: "20px 16px 80px" },
+  card: { background: "#fff", borderRadius: 16, padding: "22px 20px", boxShadow: "0 2px 16px rgba(44,36,22,.08)", marginBottom: 16, border: "1px solid #e8e0d0" },
+  cardHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  cardTitle: { margin: 0, fontFamily: "'Playfair Display',serif", fontSize: 20, fontWeight: 700 },
+  cancelBtn: { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#a08c6e" },
+  label: { display: "block", fontSize: 10, letterSpacing: 1.5, color: "#7a6a52", fontWeight: 600, marginBottom: 6, textTransform: "uppercase" },
+  input: { width: "100%", padding: "10px 13px", border: "1.5px solid #e0d8cc", borderRadius: 10, fontSize: 14, fontFamily: "'DM Sans',sans-serif", color: "#2c2416", background: "#faf8f4", outline: "none", boxSizing: "border-box" },
+  submitBtn: { width: "100%", background: "#2c2416", color: "#f5f0e8", border: "none", borderRadius: 12, padding: "12px", fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 6 },
+  backBtn: { background: "none", border: "none", color: "#7a6a52", fontSize: 14, cursor: "pointer", padding: "0 0 12px", fontFamily: "'DM Sans',sans-serif" },
+  detailTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
+  detailDate: { fontSize: 10, letterSpacing: 1.5, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 3 },
+  detailClient: { margin: "0 0 4px", fontFamily: "'Playfair Display',serif", fontSize: 24, fontWeight: 700, color: "#2c2416" },
+  detailNote: { margin: 0, fontSize: 13, color: "#7a6a52", fontStyle: "italic" },
+  delBtn: { background: "none", border: "none", fontSize: 18, cursor: "pointer", opacity: 0.4, padding: 4 },
+  valorRow: { display: "flex", gap: 12, marginBottom: 4, padding: "14px 16px", background: "#faf8f4", borderRadius: 12, border: "1px solid #e8e0d0", flexWrap: "wrap" },
+  valorBlock: { flex: 1, minWidth: 140 },
+  pagoBlock: { flexShrink: 0 },
+  valorLabel: { fontSize: 10, letterSpacing: 1.5, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 6 },
+  valorAmount: { fontSize: 22, fontWeight: 700, color: "#2c2416", fontFamily: "'Playfair Display',serif" },
+  editValorBtn: { background: "none", border: "none", fontSize: 14, cursor: "pointer", padding: "2px 4px", opacity: 0.6 },
+  valorSaveBtn: { background: "#166534", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  valorCancelBtn: { background: "none", border: "1px solid #e0d8cc", borderRadius: 8, padding: "5px 10px", fontSize: 13, cursor: "pointer", color: "#7a6a52" },
+  pagoBtn: { padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  sectionSubtitle: { fontSize: 10, letterSpacing: 1.5, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 10 },
+  prodList: { marginBottom: 16 },
+  emptyProd: { fontSize: 13, color: "#a08c6e", textAlign: "center", padding: "14px 0", fontStyle: "italic" },
+  prodRow: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #f0ebe3" },
+  checkBtn: { width: 26, height: 26, borderRadius: "50%", border: "2px solid #c9b99a", color: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontWeight: 700 },
+  prodName: { flex: 1, fontSize: 14, color: "#2c2416" },
+  pill: { fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" },
+  xBtn: { background: "none", border: "none", color: "#c0a88c", fontSize: 12, cursor: "pointer", padding: "2px 4px" },
+  addBtn: { background: "#c9a96e", color: "#2c2416", border: "none", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  contaCard: { background: "#fff", borderRadius: 14, padding: "18px", marginBottom: 16, border: "1px solid #e8e0d0", boxShadow: "0 1px 8px rgba(44,36,22,.06)" },
+  contaTitle: { fontSize: 13, fontWeight: 700, color: "#2c2416", marginBottom: 14 },
+  contaGrid: { display: "flex", gap: 10, flexWrap: "wrap" },
+  contaItem: { flex: 1, minWidth: 90 },
+  contaItemLabel: { fontSize: 10, letterSpacing: 1, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 },
+  contaItemValue: { fontSize: 18, fontWeight: 700, fontFamily: "'Playfair Display',serif" },
+  accountRow: { background: "#fff", borderRadius: 12, padding: "13px 14px", marginBottom: 8, display: "flex", alignItems: "flex-start", cursor: "pointer", border: "1px solid #e8e0d0", transition: "background .15s", gap: 10 },
+  accountRight: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 },
+  accountValor: { fontSize: 15, fontWeight: 700, color: "#2c2416", fontFamily: "'Playfair Display',serif" },
+  accountPago: { fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" },
+  modeToggleWrap: { display: "flex", gap: 6, marginBottom: 16, background: "#e8e0d0", borderRadius: 12, padding: 4 },
+  modeBtn: { flex: 1, background: "none", border: "none", borderRadius: 9, padding: "8px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", color: "#7a6a52" },
+  modeBtnActive: { background: "#fff", color: "#2c2416", boxShadow: "0 1px 6px rgba(44,36,22,.1)" },
+  searchRow: { display: "flex", gap: 8, marginBottom: 16, alignItems: "center" },
+  searchInput: { flex: 1, padding: "9px 13px", border: "1.5px solid #e0d8cc", borderRadius: 10, fontSize: 13, fontFamily: "'DM Sans',sans-serif", background: "#fff", outline: "none" },
+  clearBtn: { background: "none", border: "1.5px solid #e0d8cc", borderRadius: 10, padding: "9px 12px", fontSize: 12, color: "#7a6a52", cursor: "pointer" },
+  listCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", cursor: "pointer", border: "1px solid #e8e0d0", boxShadow: "0 1px 6px rgba(44,36,22,.04)", transition: "background .15s" },
+  listLeft: { flex: 1 },
+  listDate: { fontSize: 10, letterSpacing: 1.5, color: "#a08c6e", fontWeight: 600, textTransform: "uppercase", marginBottom: 2 },
+  listClient: { fontSize: 16, fontWeight: 600, color: "#2c2416", fontFamily: "'Playfair Display',serif", marginBottom: 1 },
+  listNote: { fontSize: 12, color: "#a08c6e", fontStyle: "italic" },
+  listRight: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, marginLeft: 12 },
+  listValor: { fontSize: 14, fontWeight: 700, color: "#2c2416", fontFamily: "'Playfair Display',serif" },
+  listPago: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 },
+  arrow: { fontSize: 13, color: "#c9b99a" },
+  clientCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", cursor: "pointer", border: "1px solid #e8e0d0", boxShadow: "0 1px 6px rgba(44,36,22,.04)", transition: "background .15s", gap: 12 },
+  clientInitialWrap: { flexShrink: 0 },
+  clientInitial: { width: 42, height: 42, borderRadius: "50%", background: "linear-gradient(135deg,#c9a96e,#7a6a52)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, fontFamily: "'Playfair Display',serif" },
+  clientCardName: { fontSize: 16, fontWeight: 600, color: "#2c2416", fontFamily: "'Playfair Display',serif", marginBottom: 1 },
+  clientCardMeta: { fontSize: 11, color: "#a08c6e", marginBottom: 2 },
+  prodChip: { background: "#f5f0e8", color: "#7a6a52", fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 20, border: "1px solid #e0d8cc" },
+  clientValor: { fontSize: 14, fontWeight: 700, color: "#2c2416", fontFamily: "'Playfair Display',serif" },
+  clientDivida: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#fef2f2", color: "#b91c1c" },
+  pendingBadge: { background: "#fef3c7", color: "#92400e", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20 },
+  sectionTitle: { margin: 0, fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700 },
+  historyCard: { background: "#fff", borderRadius: 12, padding: "13px 15px", marginBottom: 8, display: "flex", alignItems: "flex-start", border: "1px solid #e8e0d0" },
+  historyLeft: { flex: 1 },
+  historyProdName: { fontSize: 14, fontWeight: 600, color: "#2c2416", marginBottom: 2 },
+  historyMeta: { fontSize: 11, color: "#7a6a52" },
+  dateChip: { fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 20, border: "1px solid #e0d8cc" },
+  historyRight: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, marginLeft: 10 },
+  freqBadge: { width: 34, height: 34, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 },
+  pendingDot: { width: 18, height: 18, borderRadius: "50%", background: "#fbbf24", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" },
+  sendAllBtn: { width: "100%", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 14 },
+  faltaCard: { background: "#fff", borderRadius: 12, padding: "13px 15px", marginBottom: 8, display: "flex", alignItems: "center", border: "1px solid #e8e0d0", transition: "background .15s" },
+  faltaName: { fontSize: 15, fontWeight: 600, color: "#2c2416" },
+  clientChip: { background: "#fef3c7", color: "#92400e", fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20 },
+  faltaCount: { fontSize: 18, fontWeight: 700, color: "#b45309", minWidth: 28, textAlign: "center" },
+  sendOneBtn: { background: "#ede9fe", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 16, cursor: "pointer" },
+  debtBanner: { background: "linear-gradient(135deg,#7f1d1d,#b91c1c)", borderRadius: 16, padding: "22px", marginBottom: 16, boxShadow: "0 4px 20px rgba(185,28,28,.25)" },
+  debtCard: { background: "#fff", borderRadius: 14, padding: "15px 16px", marginBottom: 10, display: "flex", alignItems: "flex-start", cursor: "pointer", border: "1.5px solid #fecaca", boxShadow: "0 1px 8px rgba(185,28,28,.07)", transition: "background .15s", gap: 12 },
+  debtAmount: { fontSize: 18, fontWeight: 700, color: "#b91c1c", fontFamily: "'Playfair Display',serif" },
+  debtLabel: { fontSize: 10, fontWeight: 600, color: "#b91c1c", textTransform: "uppercase", letterSpacing: 1 },
+  debtOrderRow: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderTop: "1px dashed #f5f0e8" },
+  debtOrderDate: { fontSize: 11, fontWeight: 600, color: "#7a6a52", whiteSpace: "nowrap" },
+  debtOrderValor: { fontSize: 12, fontWeight: 700, color: "#b91c1c", marginLeft: "auto", whiteSpace: "nowrap" },
+  despBanner: { background: "linear-gradient(135deg,#1e3a8a,#1e40af)", borderRadius: 16, padding: "20px 22px", marginBottom: 16, boxShadow: "0 4px 20px rgba(30,64,175,.25)" },
+  despCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "flex-start", border: "1.5px solid #e8e0d0", boxShadow: "0 1px 6px rgba(44,36,22,.04)", transition: "background .15s", gap: 12 },
+  despCategoria: { fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, letterSpacing: 0.3 },
+  despDescricao: { fontSize: 15, fontWeight: 600, color: "#2c2416" },
+  despValor: { fontSize: 18, fontWeight: 700, fontFamily: "'Playfair Display',serif" },
+  despDelBtn: { background: "none", border: "none", color: "#c0a88c", fontSize: 11, cursor: "pointer", padding: "2px 4px", fontFamily: "'DM Sans',sans-serif" },
+  backupBtn: { background: "none", border: "1.5px solid #3d3022", color: "#c9a96e", borderRadius: 10, padding: "6px 10px", fontSize: 18, cursor: "pointer", lineHeight: 1 },
+  backupPanel: { maxWidth: 640, margin: "0 auto", padding: "14px 16px", background: "#faf8f4", borderBottom: "1px solid #e8e0d0" },
+  backupExportBtn: { background: "#2c2416", color: "#f5f0e8", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  backupImportBtn: { background: "#fff", color: "#2c2416", border: "1.5px solid #c9b99a", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  localBtn: { background: "#fff", color: "#7a6a52", border: "1.5px solid #e0d8cc", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" },
+  localBtnActive: { background: "#2c2416", color: "#f5f0e8", border: "1.5px solid #2c2416" },
+  pdfBtn: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+};
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
