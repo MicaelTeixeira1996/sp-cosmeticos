@@ -552,7 +552,7 @@ function App() {
                             <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#c9a96e,#7a6a52)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{cp.name.charAt(0).toUpperCase()}</div>
                             <div>
                               <div style={{ fontSize: 14, fontWeight: 600, color: "#2c2416" }}>{cp.name}</div>
-                              {getClientNum(cp.name) && <div style={{ fontSize: 11, color: "#a08c6e" }}>Nº {getClientNum(cp.name)}{cp.contact?.localidade ? " · " + cp.contact.localidade : ""}</div>}
+                              <div style={{ fontSize: 11, color: "#a08c6e" }}>{[getClientNum(cp.name) ? "Nº " + getClientNum(cp.name) : null, cp.contact?.localidade, cp.contact?.comercial].filter(Boolean).join(" · ")}</div>
                             </div>
                           </div>
                         ))}
@@ -625,7 +625,7 @@ function App() {
                   <Field label="Telemóvel / Telefone"><input style={S.input} type="tel" placeholder="9XX XXX XXX" value={clientNewForm.contacto} onChange={e => setClientNewForm(f => ({ ...f, contacto: e.target.value }))} /></Field>
                   <Field label="Morada"><input style={S.input} type="text" placeholder="Rua, nº..." value={clientNewForm.morada} onChange={e => setClientNewForm(f => ({ ...f, morada: e.target.value }))} /></Field>
                   <Field label="Localidade"><input style={S.input} type="text" placeholder="Cidade / Freguesia..." value={clientNewForm.localidade} onChange={e => setClientNewForm(f => ({ ...f, localidade: e.target.value }))} /></Field>
-                  <Field label="Comercial"><input style={S.input} type="text" placeholder="Nome do comercial..." value={clientNewForm.comercial} onChange={e => setClientNewForm(f => ({ ...f, comercial: e.target.value }))} /></Field>
+                  <Field label="Comercial"><select style={S.input} value={clientNewForm.comercial} onChange={e => setClientNewForm(f => ({ ...f, comercial: e.target.value }))}><option value="">-- Selecionar --</option><option>Micael</option><option>Pedro</option><option>Site</option></select></Field>
                   <button style={S.submitBtn} onClick={createNewClient}>Adicionar Cliente →</button>
                 </div>
               </div>
@@ -655,7 +655,7 @@ function App() {
                         <Field label="Telemóvel / Telefone"><input style={S.input} type="tel" placeholder="9XX XXX XXX" value={contactForm.contacto} onChange={e => setContactForm(f => ({ ...f, contacto: e.target.value }))} /></Field>
                         <Field label="Morada"><input style={S.input} type="text" placeholder="Rua, nº..." value={contactForm.morada} onChange={e => setContactForm(f => ({ ...f, morada: e.target.value }))} /></Field>
                         <Field label="Localidade"><input style={S.input} type="text" placeholder="Cidade / Freguesia..." value={contactForm.localidade} onChange={e => setContactForm(f => ({ ...f, localidade: e.target.value }))} /></Field>
-                        <Field label="Comercial"><input style={S.input} type="text" placeholder="Nome do comercial..." value={contactForm.comercial || ""} onChange={e => setContactForm(f => ({ ...f, comercial: e.target.value }))} /></Field>
+                        <Field label="Comercial"><select style={S.input} value={contactForm.comercial || ""} onChange={e => setContactForm(f => ({ ...f, comercial: e.target.value }))}><option value="">-- Selecionar --</option><option>Micael</option><option>Pedro</option><option>Site</option></select></Field>
                         <div style={{ display: "flex", gap: 8 }}>
                           <button style={{ ...S.submitBtn, flex: 1 }} onClick={() => saveClientContact(selectedClientName, contactForm)}>Guardar</button>
                           <button style={{ ...S.valorCancelBtn, flex: 0 }} onClick={() => setEditingContact(false)}>Cancelar</button>
