@@ -17,10 +17,29 @@ const { useState, useEffect, useRef } = React;
 const SUPABASE_URL = "https://jbgqklojefwjlziemuvx.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpiZ3FrbG9qZWZ3amx6aWVtdXZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMjYwNjksImV4cCI6MjA4ODkwMjA2OX0.w33ICycyXRhNunS-DJ1aGtgHELipXMD8ZocpCxoVjyE";
 
-async function sbFetch(path, options = {}) {
-  const session = JSON.parse(localStorage.getItem("sb_session") || "null");
+async function sbRefreshSession() {
+  try {
+    const session = JSON.parse(localStorage.getItem("sb_session") || "null");
+    if (!session?.refresh_token) return null;
+    const res = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST", headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY },
+      body: JSON.stringify({ refresh_token: session.refresh_token })
+    });
+    const data = await res.json();
+    if (data.access_token) { localStorage.setItem("sb_session", JSON.stringify(data)); return data; }
+    return null;
+  } catch { return null; }
+}
+async function sbFetch(path, options = {}, retry = true) {
+  let session = JSON.parse(localStorage.getItem("sb_session") || "null");
   const headers = { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session?.access_token || SUPABASE_KEY}`, ...options.headers };
   const res = await fetch(SUPABASE_URL + path, { ...options, headers });
+  if (res.status === 401 && retry) {
+    const newSession = await sbRefreshSession();
+    if (newSession) return sbFetch(path, options, false);
+    localStorage.removeItem("sb_session");
+    window.location.reload();
+  }
   return res;
 }
 async function sbAuth(email, password) {
@@ -29,15 +48,20 @@ async function sbAuth(email, password) {
   if (data.access_token) { localStorage.setItem("sb_session", JSON.stringify(data)); return { ok: true, user: data.user }; }
   return { ok: false, error: data.error_description || data.msg || "Erro ao entrar" };
 }
-async function sbSignOut() { await fetch(SUPABASE_URL + "/auth/v1/logout", { method: "POST", headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${JSON.parse(localStorage.getItem("sb_session") || "{}").access_token}` } }); localStorage.removeItem("sb_session"); }
+async function sbSignOut() { try { await fetch(SUPABASE_URL + "/auth/v1/logout", { method: "POST", headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${JSON.parse(localStorage.getItem("sb_session") || "{}").access_token}` } }); } catch {} localStorage.removeItem("sb_session"); }
 async function sbLoadData() {
-  const res = await sbFetch("/rest/v1/app_data?id=eq.main&select=data");
-  if (!res.ok) return null;
-  const rows = await res.json();
-  return rows.length > 0 ? rows[0].data : null;
+  try {
+    const res = await sbFetch("/rest/v1/app_data?id=eq.main&select=data");
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return rows.length > 0 ? rows[0].data : null;
+  } catch { return null; }
 }
 async function sbSaveData(d) {
-  await sbFetch("/rest/v1/app_data", { method: "POST", headers: { "Prefer": "resolution=merge-duplicates" }, body: JSON.stringify({ id: "main", data: d, updated_at: new Date().toISOString() }) });
+  try {
+    const res = await sbFetch("/rest/v1/app_data", { method: "POST", headers: { "Prefer": "resolution=merge-duplicates" }, body: JSON.stringify({ id: "main", data: d, updated_at: new Date().toISOString() }) });
+    return res.ok;
+  } catch { return false; }
 }
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function formatDate(d) { if (!d) return ""; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; }
@@ -124,7 +148,15 @@ function App() {
     })();
   }, [session]);
 
-  async function save(d) { setData(d); try { await sbSaveData(d); } catch {} }
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  async function save(d) {
+    setData(d);
+    setSaving(true); setSaveError(false);
+    const ok = await sbSaveData(d);
+    setSaving(false);
+    if (!ok) { setSaveError(true); setTimeout(() => setSaveError(false), 4000); }
+  }
   function showToast(msg, type = "ok") { setToast({ msg, type }); setTimeout(() => setToast(null), 2400); }
 
   // CLIENT ORDERS
@@ -439,6 +471,8 @@ function App() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}input:focus,select:focus{border-color:#c9a96e!important;}.hoverable:hover{background:#faf8f5!important;}`}</style>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
       {toast && <div style={{ ...S.toast, background: toast.type === "err" ? "#b91c1c" : "#166534" }}>{toast.msg}</div>}
+      {saving && <div style={{ ...S.toast, background: "#1e40af", right: 16, left: "auto" }}>💾 A guardar...</div>}
+      {saveError && <div style={{ ...S.toast, background: "#b91c1c", right: 16, left: "auto" }}>⚠️ Erro ao guardar! Verifica a ligação.</div>}
 
       <header style={S.header}>
         <div style={S.headerInner}>
